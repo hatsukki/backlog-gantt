@@ -43,6 +43,10 @@
     .gantt-assignee-header {
       font-size: 15px; font-weight: 700; color: #2c3e50;
       padding: 8px 0; border-bottom: 2px solid #3498db; margin-bottom: 4px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .gantt-assignee-header img {
+      width: 24px; height: 24px; border-radius: 50%; object-fit: cover;
     }
 
     .status-msg { padding: 40px; text-align: center; color: #999; font-size: 15px; }
@@ -70,6 +74,61 @@
 
     .popup-wrapper { padding: 12px; font-size: 13px; line-height: 1.6; }
     .popup-wrapper .popup-label { font-weight: 600; color: #555; }
+
+    .btn-myself { cursor: pointer; font-size: 14px; margin-left: 4px; opacity: 0.6; }
+    .btn-myself:hover { opacity: 1; }
+
+    /* Sidebar status select */
+    .gantt-with-sidebar { display: flex; align-items: flex-start; }
+    .gantt-sidebar { flex-shrink: 0; background: #fff; border-right: 1px solid #e0e0e0; overflow: visible; z-index: 10; }
+    .gantt-with-sidebar .gantt-container { flex: 1; min-width: 0; }
+    .sidebar-row { display: flex; align-items: center; padding: 0 4px; gap: 4px; position: relative; }
+    .sidebar-task-name {
+      flex: 1; min-width: 0; font-size: 11px; color: #333; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
+    }
+    .sidebar-task-name a { color: #1a73e8; text-decoration: none; }
+    .sidebar-task-name a:hover { text-decoration: underline; }
+    .sidebar-status-select {
+      flex-shrink: 0; width: 80px; padding: 2px 4px; font-size: 11px; cursor: pointer;
+      border: 1px solid #ddd; border-radius: 3px; background: #fff;
+    }
+    .sidebar-status-select:focus { outline: none; border-color: #3498db; }
+
+    .sidebar-assignee { position: relative; flex-shrink: 0; }
+    .sidebar-assignee-btn {
+      width: 22px; height: 22px; border-radius: 50%; cursor: pointer;
+      border: 2px solid transparent; object-fit: cover; display: block;
+    }
+    .sidebar-assignee-btn:hover { border-color: #3498db; }
+    .sidebar-assignee-placeholder {
+      width: 22px; height: 22px; border-radius: 50%; background: #ccc; cursor: pointer;
+      border: 2px solid transparent; display: flex; align-items: center; justify-content: center;
+      font-size: 10px; color: #fff;
+    }
+    .sidebar-assignee-placeholder:hover { border-color: #3498db; }
+    .sidebar-assignee-dd {
+      display: none; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+      z-index: 200; background: #fff; border: 1px solid #ccc; border-radius: 4px;
+      max-height: 200px; overflow-y: auto; box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+      min-width: 180px;
+    }
+    .sidebar-assignee-dd.open { display: block; }
+    .sidebar-assignee-dd-item {
+      display: flex; align-items: center; gap: 6px; padding: 6px 8px;
+      cursor: pointer; font-size: 12px; white-space: nowrap;
+    }
+    .sidebar-assignee-dd-item:hover { background: #eaf2fb; }
+    .sidebar-assignee-dd-item.selected { background: #e8f0fe; color: #1a73e8; }
+    .sidebar-assignee-dd-item img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
+
+    .popup-status-btns { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+    .popup-status-btn {
+      padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600;
+      cursor: pointer; border: 2px solid transparent; color: #fff; transition: opacity 0.2s;
+    }
+    .popup-status-btn:hover { opacity: 0.8; }
+    .popup-status-btn.current { border-color: #333; cursor: default; }
 
     /* Assignee multi-select box */
     .assignee-box {
@@ -150,7 +209,7 @@
         </select>
       </div>
       <div class="field" style="position:relative;">
-        <label>担当者</label>
+        <label>担当者 <span id="btn-myself" class="btn-myself" title="自分を設定">&#x1f464;</span></label>
         <div class="assignee-box" id="assignee-box">
           <span id="assignee-tags"></span>
           <input type="text" id="assignee-input" placeholder="検索..." autocomplete="off" disabled>
@@ -208,7 +267,10 @@
     const elBtnConnect = document.getElementById('btn-connect');
     const elProjectSelect = document.getElementById('project-select');
     const elBtnShow = document.getElementById('btn-show');
+    const elBtnMyself = document.getElementById('btn-myself');
     const elFilterRow = document.getElementById('filter-row');
+    let myselfUser = null; // { id, name }
+    let projectStatuses = []; // [{ id, name, color }]
     const elMilestoneSelect = document.getElementById('milestone-select');
     const elCategorySelect = document.getElementById('category-select');
     const elAssigneeBox = document.getElementById('assignee-box');
@@ -321,7 +383,11 @@
       elBtnConnect.disabled = true;
       elBtnConnect.textContent = '接続中...';
       try {
-        const projects = await backlogApi('/projects');
+        const [projects, myself] = await Promise.all([
+          backlogApi('/projects'),
+          backlogApi('/users/myself'),
+        ]);
+        myselfUser = { id: String(myself.id), name: myself.name };
         elProjectSelect.innerHTML = '<option value="">-- プロジェクトを選択 --</option>';
         projects.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
         for (const p of projects) {
@@ -430,6 +496,9 @@
         }
         elStatusSelect.disabled = false;
 
+        // Store statuses for popup use
+        projectStatuses = statuses.map(s => ({ id: s.id, name: s.name, color: s.color }));
+
         // Generate dynamic CSS from status colors
         let dynamicStyle = document.getElementById('dynamic-status-colors');
         if (!dynamicStyle) {
@@ -462,6 +531,14 @@
     // Update filters when project changes
     elProjectSelect.addEventListener('change', () => {
       fetchProjectFilters(elProjectSelect.value);
+    });
+
+    // Toggle myself as assignee
+    elBtnMyself.addEventListener('click', () => {
+      if (!myselfUser) return;
+      const onlyMyself = selectedAssignees.length === 1 && selectedAssignees[0].id === myselfUser.id;
+      selectedAssignees = onlyMyself ? [] : [myselfUser];
+      renderAssigneeTags();
     });
 
     // Auto-fill end date when start date is set
@@ -564,7 +641,9 @@
             custom_class: `bar-status-${getStatusClass(issue.status?.id)}`,
             _issueKey: issue.issueKey,
             _assignee: issue.assignee?.name || '未割当',
+            _assigneeId: issue.assignee?.id || null,
             _status: issue.status?.name || '不明',
+            _statusId: issue.status?.id || null,
             _dueDate: issue.dueDate.split('T')[0],
           };
         });
@@ -613,19 +692,23 @@
         infinite_padding: false,
         popup: function({ task }) {
           if (task.id.startsWith('__bound')) return false;
+          const statusBtns = projectStatuses.map(s => {
+            const isCurrent = s.id === task._statusId;
+            const bg = s.color || '#999';
+            return `<span class="popup-status-btn${isCurrent ? ' current' : ''}" data-issue="${task._issueKey}" data-status-id="${s.id}" data-status-name="${s.name}" style="background:${bg};">${s.name}</span>`;
+          }).join('');
           return `
-            <div class="popup-wrapper">
-              <div style="font-weight:700; margin-bottom:6px;">${task.name}</div>
+            <div class="popup-wrapper" data-task-id="${task.id}">
+              <div style="font-weight:700; margin-bottom:6px;"><a href="${baseUrl}/view/${task._issueKey}" target="_blank" style="color:#1a73e8; text-decoration:none;">${task.name} ↗</a></div>
               <div><span class="popup-label">担当者:</span> ${task._assignee}</div>
               <div><span class="popup-label">ステータス:</span> ${task._status}</div>
               <div><span class="popup-label">期限:</span> ${task._dueDate}</div>
+              <div class="popup-status-btns">${statusBtns}</div>
             </div>
           `;
         },
         on_click: function(task) {
           if (dragged) { dragged = false; return; }
-          if (task.id.startsWith('__bound')) return;
-          window.open(`${baseUrl}/view/${task._issueKey}`, '_blank');
         },
         on_date_change: async function(task, start, end) {
           dragged = true;
@@ -648,6 +731,131 @@
           }
         },
       };
+    }
+
+    // Build sidebar with status selects aligned to Gantt rows
+    function buildSidebar(ganttContainer, tasksWithBounds) {
+      const svgEl = ganttContainer.querySelector('svg');
+      const gridRows = svgEl.querySelectorAll('.grid-row');
+      let headerOffset = 55;
+      let rowHeight = 38;
+      if (gridRows.length >= 1) {
+        headerOffset = parseFloat(gridRows[0].getAttribute('y')) || headerOffset;
+        rowHeight = parseFloat(gridRows[0].getAttribute('height')) || rowHeight;
+      }
+      const sidebar = document.createElement('div');
+      sidebar.className = 'gantt-sidebar';
+      const spacer = document.createElement('div');
+      spacer.style.height = headerOffset + 'px';
+      sidebar.appendChild(spacer);
+      for (const task of tasksWithBounds) {
+        const row = document.createElement('div');
+        row.className = 'sidebar-row';
+        row.style.height = rowHeight + 'px';
+        if (!task.id.startsWith('__bound')) {
+          const nameEl = document.createElement('div');
+          nameEl.className = 'sidebar-task-name';
+          nameEl.title = task.name;
+          const link = document.createElement('a');
+          link.href = `${baseUrl}/view/${task._issueKey}`;
+          link.target = '_blank';
+          link.textContent = task.name.length > 20 ? task.name.slice(0, 20) + '...' : task.name;
+          nameEl.appendChild(link);
+          row.appendChild(nameEl);
+
+          // Assignee dropdown with avatar
+          const assigneeWrap = document.createElement('div');
+          assigneeWrap.className = 'sidebar-assignee';
+          const apiKeyParam = encodeURIComponent(elApiKey.value.trim());
+          if (task._assigneeId) {
+            const img = document.createElement('img');
+            img.className = 'sidebar-assignee-btn';
+            img.src = `${baseUrl}/api/v2/users/${task._assigneeId}/icon?apiKey=${apiKeyParam}`;
+            img.alt = task._assignee;
+            img.title = task._assignee;
+            assigneeWrap.appendChild(img);
+          } else {
+            const ph = document.createElement('div');
+            ph.className = 'sidebar-assignee-placeholder';
+            ph.textContent = '?';
+            ph.title = '未割当';
+            assigneeWrap.appendChild(ph);
+          }
+          const addDd = document.createElement('div');
+          addDd.className = 'sidebar-assignee-dd';
+          // Unassigned option
+          const unItem = document.createElement('div');
+          unItem.className = 'sidebar-assignee-dd-item' + (!task._assigneeId ? ' selected' : '');
+          unItem.textContent = '未割当';
+          unItem.dataset.assigneeId = '';
+          unItem.dataset.assigneeName = '未割当';
+          addDd.appendChild(unItem);
+          for (const m of assigneeList) {
+            const item = document.createElement('div');
+            item.className = 'sidebar-assignee-dd-item' + (task._assigneeId == m.id ? ' selected' : '');
+            const mImg = document.createElement('img');
+            mImg.src = `${baseUrl}/api/v2/users/${m.id}/icon?apiKey=${apiKeyParam}`;
+            item.appendChild(mImg);
+            item.appendChild(document.createTextNode(m.name));
+            item.dataset.assigneeId = m.id;
+            item.dataset.assigneeName = m.name;
+            addDd.appendChild(item);
+          }
+          assigneeWrap.querySelector('.sidebar-assignee-btn, .sidebar-assignee-placeholder').addEventListener('click', (e) => {
+            e.stopPropagation();
+            document.querySelectorAll('.sidebar-assignee-dd.open').forEach(d => { if (d !== addDd) d.classList.remove('open'); });
+            addDd.classList.toggle('open');
+          });
+          addDd.addEventListener('click', async (e) => {
+            const item = e.target.closest('.sidebar-assignee-dd-item');
+            if (!item) return;
+            e.stopPropagation();
+            addDd.classList.remove('open');
+            const newId = item.dataset.assigneeId;
+            const newName = item.dataset.assigneeName;
+            try {
+              await backlogApiPatch(`/issues/${task._issueKey}`, { assigneeId: newId || '' });
+              const t = currentTasks.find(t => t._issueKey === task._issueKey);
+              if (t) { t._assignee = newName; t._assigneeId = newId ? parseInt(newId) : null; }
+              renderGantt(currentTasks);
+              showToast(`${task._issueKey} → ${newName}`);
+            } catch (err) { alert('担当者更新失敗: ' + err.message); }
+          });
+          assigneeWrap.appendChild(addDd);
+          row.appendChild(assigneeWrap);
+
+          const select = document.createElement('select');
+          select.className = 'sidebar-status-select';
+          select.dataset.issueKey = task._issueKey;
+          for (const s of projectStatuses) {
+            const opt = document.createElement('option');
+            opt.value = s.id;
+            opt.textContent = s.name;
+            if (s.color) opt.style.backgroundColor = s.color;
+            if (s.color) opt.style.color = '#fff';
+            if (s.id === task._statusId) opt.selected = true;
+            select.appendChild(opt);
+          }
+          const currentStatus = projectStatuses.find(s => s.id === task._statusId);
+          if (currentStatus && currentStatus.color) {
+            select.style.backgroundColor = currentStatus.color;
+            select.style.color = '#fff';
+          }
+          select.addEventListener('change', function() {
+            const sel = projectStatuses.find(s => s.id === parseInt(this.value));
+            if (sel && sel.color) {
+              this.style.backgroundColor = sel.color;
+              this.style.color = '#fff';
+            } else {
+              this.style.backgroundColor = '#fff';
+              this.style.color = '#333';
+            }
+          });
+          row.appendChild(select);
+        }
+        sidebar.appendChild(row);
+      }
+      return sidebar;
     }
 
     // Render Gantt
@@ -676,7 +884,14 @@
 
         const header = document.createElement('div');
         header.className = 'gantt-assignee-header';
-        header.textContent = `${assignee}（${groupTasks.length}件）`;
+        const assigneeId = groupTasks[0]?._assigneeId;
+        if (assigneeId) {
+          const img = document.createElement('img');
+          img.src = `${baseUrl}/api/v2/users/${assigneeId}/icon?apiKey=${encodeURIComponent(elApiKey.value.trim())}`;
+          img.alt = assignee;
+          header.appendChild(img);
+        }
+        header.appendChild(document.createTextNode(`${assignee}（${groupTasks.length}件）`));
         section.appendChild(header);
 
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -686,6 +901,19 @@
         const tasksWithBounds = addBoundaryTasks(groupTasks);
         const instance = new Gantt(svg, tasksWithBounds, ganttOptions(viewMode));
         ganttInstances.push(instance);
+
+        // Add sidebar with status selects
+        if (projectStatuses.length > 0) {
+          const ganttContainer = section.querySelector('.gantt-container');
+          if (ganttContainer) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'gantt-with-sidebar';
+            const sidebar = buildSidebar(ganttContainer, tasksWithBounds);
+            ganttContainer.parentNode.insertBefore(wrapper, ganttContainer);
+            wrapper.appendChild(sidebar);
+            wrapper.appendChild(ganttContainer);
+          }
+        }
       }
 
       elToolbar.style.display = 'flex';
@@ -719,10 +947,11 @@
     // Multi-select assignee
     function renderAssigneeTags() {
       elAssigneeTags.innerHTML = '';
+      const apiKeyParam = encodeURIComponent(elApiKey.value.trim());
       for (const a of selectedAssignees) {
         const tag = document.createElement('span');
         tag.className = 'assignee-tag';
-        tag.innerHTML = `${a.name}<span class="tag-remove" data-id="${a.id}">&times;</span>`;
+        tag.innerHTML = `<img src="${baseUrl}/api/v2/users/${a.id}/icon?apiKey=${apiKeyParam}" style="width:16px;height:16px;border-radius:50%;object-fit:cover;vertical-align:middle;">${a.name}<span class="tag-remove" data-id="${a.id}">&times;</span>`;
         elAssigneeTags.appendChild(tag);
       }
       elAssigneeInput.placeholder = selectedAssignees.length ? '' : '検索...';
@@ -753,11 +982,19 @@
         empty.textContent = '該当なし';
         elAssigneeDropdown.appendChild(empty);
       } else {
+        const apiKeyParam = encodeURIComponent(elApiKey.value.trim());
         for (const a of items) {
           const div = document.createElement('div');
           const isSelected = selectedIds.has(a.id);
           div.className = 'dd-item' + (isSelected ? ' selected' : '');
-          div.textContent = a.name;
+          div.style.display = 'flex';
+          div.style.alignItems = 'center';
+          div.style.gap = '6px';
+          const img = document.createElement('img');
+          img.src = `${baseUrl}/api/v2/users/${a.id}/icon?apiKey=${apiKeyParam}`;
+          img.style.cssText = 'width:20px;height:20px;border-radius:50%;object-fit:cover;';
+          div.appendChild(img);
+          div.appendChild(document.createTextNode(a.name));
           div.addEventListener('mousedown', (e) => {
             e.preventDefault();
             if (isSelected) {
@@ -789,6 +1026,66 @@
     elAssigneeInput.addEventListener('blur', () => {
       closeAssigneeDropdown();
       elAssigneeInput.value = '';
+    });
+
+    // Status change from sidebar select
+    document.addEventListener('change', async (e) => {
+      const select = e.target.closest('.sidebar-status-select');
+      if (!select) return;
+      const issueKey = select.dataset.issueKey;
+      const newStatusId = select.value;
+      const newStatusName = select.selectedOptions[0].textContent;
+      select.disabled = true;
+      try {
+        await backlogApiPatch(`/issues/${issueKey}`, { statusId: newStatusId });
+        const task = currentTasks.find(t => t._issueKey === issueKey);
+        if (task) {
+          task._status = newStatusName;
+          task._statusId = parseInt(newStatusId);
+          task.progress = getStatusProgress(task._statusId);
+          task.custom_class = `bar-status-${task._statusId}`;
+        }
+        renderGantt(currentTasks);
+        showToast(`${issueKey} → ${newStatusName}`);
+      } catch (err) {
+        alert('ステータス更新失敗: ' + err.message);
+        select.disabled = false;
+      }
+    });
+
+    // Status change from popup
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.popup-status-btn');
+      if (!btn || btn.classList.contains('current')) return;
+      e.stopPropagation();
+      const issueKey = btn.dataset.issue;
+      const newStatusId = btn.dataset.statusId;
+      const newStatusName = btn.dataset.statusName;
+      btn.textContent = '...';
+      try {
+        await backlogApiPatch(`/issues/${issueKey}`, { statusId: newStatusId });
+        // Update task data
+        const task = currentTasks.find(t => t._issueKey === issueKey);
+        if (task) {
+          task._status = newStatusName;
+          task._statusId = parseInt(newStatusId);
+          task.progress = getStatusProgress(task._statusId);
+          task.custom_class = `bar-status-${task._statusId}`;
+        }
+        // Update bar color by re-rendering
+        renderGantt(currentTasks);
+        showToast(`${issueKey} → ${newStatusName}`);
+      } catch (err) {
+        alert('ステータス更新失敗: ' + err.message);
+        btn.textContent = newStatusName;
+      }
+    });
+
+    // Close assignee dropdowns when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.sidebar-assignee')) {
+        document.querySelectorAll('.sidebar-assignee-dd.open').forEach(d => d.classList.remove('open'));
+      }
     });
 
     // Close popups when clicking outside gantt bars

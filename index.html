@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Backlog ガントチャート</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/frappe-gantt@1.2.2/dist/frappe-gantt.css">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #333; }
+
+    .header { background: #2c3e50; color: #fff; padding: 16px 24px; }
+    .header h1 { font-size: 20px; font-weight: 600; }
+
+    .settings { background: #fff; padding: 20px 24px; border-bottom: 1px solid #ddd; }
+    .settings-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+    .settings-row + .settings-row { margin-top: 12px; }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field label { font-size: 12px; font-weight: 600; color: #666; }
+    .field input, .field select {
+      padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; min-width: 180px;
+    }
+    .field input[type="date"] { min-width: 150px; }
+    .field input:focus, .field select:focus { outline: none; border-color: #3498db; box-shadow: 0 0 0 2px rgba(52,152,219,0.2); }
+
+    button {
+      padding: 8px 20px; border: none; border-radius: 4px; font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: background 0.2s;
+    }
+    .btn-primary { background: #3498db; color: #fff; }
+    .btn-primary:hover { background: #2980b9; }
+    .btn-primary:disabled { background: #95a5a6; cursor: not-allowed; }
+    .btn-success { background: #27ae60; color: #fff; }
+    .btn-success:hover { background: #219a52; }
+    .btn-success:disabled { background: #95a5a6; cursor: not-allowed; }
+
+    .toolbar { padding: 12px 24px; background: #fff; border-bottom: 1px solid #ddd; display: flex; gap: 8px; align-items: center; }
+    .toolbar .view-btn {
+      padding: 6px 14px; border: 1px solid #ccc; border-radius: 4px; background: #fff; font-size: 13px; cursor: pointer;
+    }
+    .toolbar .view-btn.active { background: #3498db; color: #fff; border-color: #3498db; }
+    .toolbar .issue-count { margin-left: auto; font-size: 13px; color: #666; }
+
+    .chart-container { padding: 24px; overflow-x: auto; }
+    #gantt-target { min-height: 200px; }
+
+    .status-msg { padding: 40px; text-align: center; color: #999; font-size: 15px; }
+    .error-msg { color: #e74c3c; }
+    .loading { display: inline-block; width: 20px; height: 20px; border: 3px solid #ddd; border-top-color: #3498db; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 8px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Frappe Gantt overrides */
+    .gantt .bar-label { font-size: 12px; }
+    .gantt .bar { cursor: pointer; }
+
+    /* Status colors */
+    .bar-status-open .bar-progress, .bar-status-open .bar { fill: #95a5a6 !important; }
+    .bar-status-inprogress .bar-progress, .bar-status-inprogress .bar { fill: #3498db !important; }
+    .bar-status-resolved .bar-progress, .bar-status-resolved .bar { fill: #e67e22 !important; }
+    .bar-status-closed .bar-progress, .bar-status-closed .bar { fill: #27ae60 !important; }
+
+    .popup-wrapper { padding: 12px; font-size: 13px; line-height: 1.6; }
+    .popup-wrapper .popup-label { font-weight: 600; color: #555; }
+
+    /* Searchable dropdown */
+    .search-dropdown {
+      display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 100;
+      background: #fff; border: 1px solid #ccc; border-top: none; border-radius: 0 0 4px 4px;
+      max-height: 200px; overflow-y: auto; box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    .search-dropdown.open { display: block; }
+    .search-dropdown .dd-item {
+      padding: 8px 12px; cursor: pointer; font-size: 14px;
+    }
+    .search-dropdown .dd-item:hover, .search-dropdown .dd-item.active {
+      background: #eaf2fb;
+    }
+    .search-dropdown .dd-empty {
+      padding: 8px 12px; color: #999; font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Backlog ガントチャート</h1>
+  </div>
+
+  <div class="settings">
+    <div class="settings-row">
+      <div class="field">
+        <label>Backlogホスト</label>
+        <input type="text" id="space-name" placeholder="例: raccoon-a.backlog.jp">
+      </div>
+      <div class="field">
+        <label>APIキー</label>
+        <input type="password" id="api-key" placeholder="APIキーを入力">
+      </div>
+      <button class="btn-primary" id="btn-connect">接続</button>
+      <div class="field">
+        <label>プロジェクト</label>
+        <select id="project-select" disabled>
+          <option value="">-- 接続してください --</option>
+        </select>
+      </div>
+    </div>
+    <div class="settings-row" id="filter-row" style="display:none;">
+      <div class="field">
+        <label>マイルストーン</label>
+        <select id="milestone-select" disabled>
+          <option value="">-- すべて --</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>カテゴリ</label>
+        <select id="category-select" disabled>
+          <option value="">-- すべて --</option>
+        </select>
+      </div>
+      <div class="field" style="position:relative;">
+        <label>担当者</label>
+        <input type="text" id="assignee-input" placeholder="-- すべて --" autocomplete="off" disabled>
+        <input type="hidden" id="assignee-value">
+        <div id="assignee-dropdown" class="search-dropdown"></div>
+      </div>
+      <div class="field">
+        <label>開始日</label>
+        <input type="date" id="date-from">
+      </div>
+      <div class="field">
+        <label>終了日</label>
+        <input type="date" id="date-to">
+      </div>
+      <div class="field">
+        <label>ステータス</label>
+        <select id="status-select">
+          <option value="">-- すべて --</option>
+          <option value="1">未対応</option>
+          <option value="2">処理中</option>
+          <option value="3">処理済み</option>
+          <option value="4">完了</option>
+        </select>
+      </div>
+      <button class="btn-success" id="btn-show" disabled>表示</button>
+    </div>
+  </div>
+
+  <div class="toolbar" id="toolbar" style="display:none;">
+    <button class="view-btn active" data-mode="Week">週</button>
+    <button class="view-btn" data-mode="Day">日</button>
+    <button class="view-btn" data-mode="Month">月</button>
+    <span class="issue-count" id="issue-count"></span>
+  </div>
+
+  <div class="chart-container">
+    <div id="gantt-target">
+      <div class="status-msg">BacklogホストとAPIキーを入力して「接続」を押してください</div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/frappe-gantt@1.2.2/dist/frappe-gantt.umd.js"></script>
+  <script>
+    const LS_KEY = 'backlog-gantt-settings';
+    let ganttInstance = null;
+    let currentTasks = [];
+    let baseUrl = '';
+
+    // DOM elements
+    const elSpace = document.getElementById('space-name');
+    const elApiKey = document.getElementById('api-key');
+    const elBtnConnect = document.getElementById('btn-connect');
+    const elProjectSelect = document.getElementById('project-select');
+    const elBtnShow = document.getElementById('btn-show');
+    const elFilterRow = document.getElementById('filter-row');
+    const elMilestoneSelect = document.getElementById('milestone-select');
+    const elCategorySelect = document.getElementById('category-select');
+    const elAssigneeInput = document.getElementById('assignee-input');
+    const elAssigneeValue = document.getElementById('assignee-value');
+    const elAssigneeDropdown = document.getElementById('assignee-dropdown');
+    let assigneeList = []; // { id, name }
+    const elDateFrom = document.getElementById('date-from');
+    const elDateTo = document.getElementById('date-to');
+    const elStatusSelect = document.getElementById('status-select');
+    const elToolbar = document.getElementById('toolbar');
+    const elGantt = document.getElementById('gantt-target');
+    const elIssueCount = document.getElementById('issue-count');
+
+    // Load saved settings
+    function loadSettings() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
+        if (saved.space) elSpace.value = saved.space;
+        if (saved.apiKey) elApiKey.value = saved.apiKey;
+        if (saved.projectId) elProjectSelect.dataset.savedProject = saved.projectId;
+        if (saved.milestoneId) elMilestoneSelect.dataset.savedMilestone = saved.milestoneId;
+        if (saved.categoryId) elCategorySelect.dataset.savedCategory = saved.categoryId;
+        if (saved.assigneeId) elAssigneeValue.dataset.savedAssignee = saved.assigneeId;
+        if (saved.assigneeName) elAssigneeInput.dataset.savedAssigneeName = saved.assigneeName;
+        if (saved.dateFrom) elDateFrom.value = saved.dateFrom;
+        if (saved.dateTo) elDateTo.value = saved.dateTo;
+        if (saved.statusId !== undefined) elStatusSelect.value = saved.statusId;
+      } catch (e) {}
+    }
+
+    function saveSettings() {
+      const settings = {
+        space: elSpace.value.trim(),
+        apiKey: elApiKey.value.trim(),
+        projectId: elProjectSelect.value,
+        milestoneId: elMilestoneSelect.value,
+        categoryId: elCategorySelect.value,
+        assigneeId: elAssigneeValue.value,
+        assigneeName: elAssigneeInput.value,
+        dateFrom: elDateFrom.value,
+        dateTo: elDateTo.value,
+        statusId: elStatusSelect.value,
+      };
+      localStorage.setItem(LS_KEY, JSON.stringify(settings));
+    }
+
+    // Backlog API
+    function getHost() {
+      const input = elSpace.value.trim();
+      // そのままホスト名として使う（例: raccoon-a.backlog.jp）
+      // .backlog.jp / .backlog.com が含まれなければ .backlog.jp を付与
+      if (input.includes('.')) return input;
+      return `${input}.backlog.jp`;
+    }
+
+    async function backlogApi(path, params = {}) {
+      const host = getHost();
+      const apiKey = elApiKey.value.trim();
+      baseUrl = `https://${host}`;
+      const url = new URL(`${baseUrl}/api/v2${path}`);
+      url.searchParams.set('apiKey', apiKey);
+      for (const [k, v] of Object.entries(params)) {
+        if (Array.isArray(v)) {
+          v.forEach(item => url.searchParams.append(k, item));
+        } else {
+          url.searchParams.set(k, v);
+        }
+      }
+      const res = await fetch(url.toString());
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.errors?.[0]?.message || `API Error: ${res.status}`);
+      }
+      return res.json();
+    }
+
+    // Connect: fetch projects
+    elBtnConnect.addEventListener('click', async () => {
+      const space = elSpace.value.trim();
+      const apiKey = elApiKey.value.trim();
+      if (!space || !apiKey) { alert('BacklogホストとAPIキーを入力してください'); return; }
+
+      elBtnConnect.disabled = true;
+      elBtnConnect.textContent = '接続中...';
+      try {
+        const projects = await backlogApi('/projects');
+        elProjectSelect.innerHTML = '<option value="">-- プロジェクトを選択 --</option>';
+        projects.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+        for (const p of projects) {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = `${p.projectKey} - ${p.name}`;
+          opt.dataset.key = p.projectKey;
+          elProjectSelect.appendChild(opt);
+        }
+        elProjectSelect.disabled = false;
+        elBtnShow.disabled = false;
+        elFilterRow.style.display = 'flex';
+
+        // Restore saved project
+        const savedId = elProjectSelect.dataset.savedProject;
+        if (savedId) {
+          const opt = elProjectSelect.querySelector(`option[value="${savedId}"]`);
+          if (opt) {
+            elProjectSelect.value = savedId;
+            await fetchProjectFilters(savedId);
+          }
+        }
+
+        // Set default date range (today ~ +1 month) if not restored
+        if (!elDateFrom.value) {
+          const today = new Date();
+          elDateFrom.value = toDateStr(today);
+          const nextMonth = new Date(today);
+          nextMonth.setMonth(nextMonth.getMonth() + 1);
+          elDateTo.value = toDateStr(nextMonth);
+        }
+
+        saveSettings();
+      } catch (e) {
+        alert('接続エラー: ' + e.message);
+      } finally {
+        elBtnConnect.disabled = false;
+        elBtnConnect.textContent = '接続';
+      }
+    });
+
+    function toDateStr(d) {
+      return d.toISOString().split('T')[0];
+    }
+
+    // Fetch milestones, categories, members for selected project
+    async function fetchProjectFilters(projectId) {
+      elMilestoneSelect.innerHTML = '<option value="">-- すべて --</option>';
+      elCategorySelect.innerHTML = '<option value="">-- すべて --</option>';
+      assigneeList = [];
+      elAssigneeInput.value = '';
+      elAssigneeValue.value = '';
+      elMilestoneSelect.disabled = true;
+      elCategorySelect.disabled = true;
+      elAssigneeInput.disabled = true;
+      if (!projectId) return;
+
+      const projectKey = elProjectSelect.selectedOptions[0]?.dataset.key;
+
+      try {
+        const [milestones, categories, members] = await Promise.all([
+          backlogApi(`/projects/${projectKey}/versions`),
+          backlogApi(`/projects/${projectKey}/categories`),
+          backlogApi(`/projects/${projectKey}/users`),
+        ]);
+
+        for (const m of milestones) {
+          const opt = document.createElement('option');
+          opt.value = m.id;
+          opt.textContent = m.name;
+          elMilestoneSelect.appendChild(opt);
+        }
+        elMilestoneSelect.disabled = false;
+
+        for (const c of categories) {
+          const opt = document.createElement('option');
+          opt.value = c.id;
+          opt.textContent = c.name;
+          elCategorySelect.appendChild(opt);
+        }
+        elCategorySelect.disabled = false;
+
+        members.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+        assigneeList = members.map(u => ({ id: String(u.id), name: u.name }));
+        elAssigneeInput.disabled = false;
+
+        // Restore saved values
+        const savedMid = elMilestoneSelect.dataset.savedMilestone;
+        if (savedMid) { const o = elMilestoneSelect.querySelector(`option[value="${savedMid}"]`); if (o) elMilestoneSelect.value = savedMid; }
+        const savedCid = elCategorySelect.dataset.savedCategory;
+        if (savedCid) { const o = elCategorySelect.querySelector(`option[value="${savedCid}"]`); if (o) elCategorySelect.value = savedCid; }
+        const savedAid = elAssigneeValue.dataset.savedAssignee;
+        if (savedAid) {
+          const found = assigneeList.find(a => a.id === savedAid);
+          if (found) { elAssigneeValue.value = found.id; elAssigneeInput.value = found.name; }
+        }
+      } catch (e) {
+        console.warn('フィルタ情報取得失敗:', e);
+      }
+    }
+
+    // Update filters when project changes
+    elProjectSelect.addEventListener('change', () => {
+      fetchProjectFilters(elProjectSelect.value);
+    });
+
+    // Enforce max 1 month range
+    function enforceMaxRange() {
+      if (elDateFrom.value && elDateTo.value) {
+        const from = new Date(elDateFrom.value);
+        const to = new Date(elDateTo.value);
+        const maxTo = new Date(from);
+        maxTo.setMonth(maxTo.getMonth() + 1);
+        if (to > maxTo) {
+          elDateTo.value = toDateStr(maxTo);
+        }
+      }
+    }
+    elDateFrom.addEventListener('change', () => {
+      if (elDateFrom.value && !elDateTo.value) {
+        const d = new Date(elDateFrom.value);
+        d.setMonth(d.getMonth() + 1);
+        elDateTo.value = toDateStr(d);
+      }
+      enforceMaxRange();
+    });
+    elDateTo.addEventListener('change', enforceMaxRange);
+
+    // Fetch all issues with pagination
+    async function fetchAllIssues(projectId) {
+      const issues = [];
+      let offset = 0;
+      const count = 100;
+      const milestoneId = elMilestoneSelect.value;
+      const categoryId = elCategorySelect.value;
+      const assigneeId = elAssigneeValue.value;
+      const dateFrom = elDateFrom.value;
+      const dateTo = elDateTo.value;
+      const statusId = elStatusSelect.value;
+
+      while (true) {
+        const params = {
+          'projectId[]': projectId,
+          count: count.toString(),
+          offset: offset.toString(),
+          sort: 'startDate',
+          order: 'asc',
+        };
+        if (milestoneId) params['milestoneId[]'] = milestoneId;
+        if (categoryId) params['categoryId[]'] = categoryId;
+        if (assigneeId) params['assigneeId[]'] = assigneeId;
+        if (dateFrom) params['dueDateSince'] = dateFrom;
+        if (dateTo) params['dueDateUntil'] = dateTo;
+        if (statusId) params['statusId[]'] = statusId;
+
+        const batch = await backlogApi('/issues', params);
+        issues.push(...batch);
+        if (batch.length < count) break;
+        offset += count;
+      }
+      return issues;
+    }
+
+    // Status mapping
+    function getStatusClass(statusId) {
+      switch (statusId) {
+        case 1: return 'open';
+        case 2: return 'inprogress';
+        case 3: return 'resolved';
+        case 4: return 'closed';
+        default: return 'open';
+      }
+    }
+
+    function getStatusProgress(statusId) {
+      switch (statusId) {
+        case 1: return 0;
+        case 2: return 40;
+        case 3: return 80;
+        case 4: return 100;
+        default: return 0;
+      }
+    }
+
+    function getStatusLabel(statusId) {
+      switch (statusId) {
+        case 1: return '未対応';
+        case 2: return '処理中';
+        case 3: return '処理済み';
+        case 4: return '完了';
+        default: return '不明';
+      }
+    }
+
+    // Convert issues to Frappe Gantt tasks
+    function issuesToTasks(issues) {
+      const projectKey = elProjectSelect.selectedOptions[0]?.dataset.key || '';
+      return issues
+        .filter(issue => issue.startDate && issue.dueDate)
+        .map(issue => ({
+          id: issue.issueKey,
+          name: `[${issue.issueKey}] ${issue.summary}`,
+          start: issue.startDate.split('T')[0],
+          end: issue.dueDate.split('T')[0],
+          progress: getStatusProgress(issue.status?.id),
+          custom_class: `bar-status-${getStatusClass(issue.status?.id)}`,
+          _issueKey: issue.issueKey,
+          _assignee: issue.assignee?.name || '未割当',
+          _status: getStatusLabel(issue.status?.id),
+          _dueDate: issue.dueDate.split('T')[0],
+        }));
+    }
+
+    // Render Gantt
+    function renderGantt(tasks, viewMode = 'Week') {
+      currentTasks = tasks;
+      elGantt.innerHTML = '';
+
+      if (tasks.length === 0) {
+        elGantt.innerHTML = '<div class="status-msg">表示可能な課題がありません（開始日・期限日が設定されている課題が必要です）</div>';
+        elToolbar.style.display = 'none';
+        return;
+      }
+
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.id = 'gantt-svg';
+      elGantt.appendChild(svg);
+
+      ganttInstance = new Gantt('#gantt-svg', tasks, {
+        readonly: true,
+        view_mode: viewMode,
+        date_format: 'YYYY-MM-DD',
+        language: 'ja',
+        popup: function({ task }) {
+          return `
+            <div class="popup-wrapper">
+              <div style="font-weight:700; margin-bottom:6px;">${task.name}</div>
+              <div><span class="popup-label">担当者:</span> ${task._assignee}</div>
+              <div><span class="popup-label">ステータス:</span> ${task._status}</div>
+              <div><span class="popup-label">期限:</span> ${task._dueDate}</div>
+            </div>
+          `;
+        },
+        on_click: function(task) {
+          window.open(`${baseUrl}/view/${task._issueKey}`, '_blank');
+        },
+      });
+
+      elToolbar.style.display = 'flex';
+      elIssueCount.textContent = `${tasks.length} 件表示`;
+    }
+
+    // Show button
+    elBtnShow.addEventListener('click', async () => {
+      const projectId = elProjectSelect.value;
+      if (!projectId) { alert('プロジェクトを選択してください'); return; }
+
+      saveSettings();
+      elBtnShow.disabled = true;
+      elBtnShow.textContent = '取得中...';
+      elGantt.innerHTML = '<div class="status-msg"><span class="loading"></span>課題を取得しています...</div>';
+
+      try {
+        const issues = await fetchAllIssues(projectId);
+        const tasks = issuesToTasks(issues);
+        renderGantt(tasks);
+      } catch (e) {
+        elGantt.innerHTML = `<div class="status-msg error-msg">エラー: ${e.message}</div>`;
+      } finally {
+        elBtnShow.disabled = false;
+        elBtnShow.textContent = '表示';
+      }
+    });
+
+    // View mode buttons
+    document.querySelectorAll('.view-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        if (ganttInstance) {
+          ganttInstance.change_view_mode(btn.dataset.mode);
+        }
+      });
+    });
+
+    // Searchable assignee dropdown
+    function renderAssigneeDropdown(filter) {
+      const q = (filter || '').toLowerCase();
+      const items = q
+        ? assigneeList.filter(a => a.name.toLowerCase().includes(q))
+        : assigneeList;
+      elAssigneeDropdown.innerHTML = '';
+
+      // "すべて" option
+      const allDiv = document.createElement('div');
+      allDiv.className = 'dd-item';
+      allDiv.textContent = '-- すべて --';
+      allDiv.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        elAssigneeValue.value = '';
+        elAssigneeInput.value = '';
+        elAssigneeInput.placeholder = '-- すべて --';
+        closeAssigneeDropdown();
+      });
+      elAssigneeDropdown.appendChild(allDiv);
+
+      if (items.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'dd-empty';
+        empty.textContent = '該当なし';
+        elAssigneeDropdown.appendChild(empty);
+      } else {
+        for (const a of items) {
+          const div = document.createElement('div');
+          div.className = 'dd-item';
+          div.textContent = a.name;
+          div.dataset.id = a.id;
+          div.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            elAssigneeValue.value = a.id;
+            elAssigneeInput.value = a.name;
+            closeAssigneeDropdown();
+          });
+          elAssigneeDropdown.appendChild(div);
+        }
+      }
+    }
+
+    function openAssigneeDropdown() {
+      renderAssigneeDropdown(elAssigneeInput.value);
+      elAssigneeDropdown.classList.add('open');
+    }
+
+    function closeAssigneeDropdown() {
+      elAssigneeDropdown.classList.remove('open');
+    }
+
+    elAssigneeInput.addEventListener('focus', openAssigneeDropdown);
+    elAssigneeInput.addEventListener('input', () => {
+      elAssigneeValue.value = '';
+      renderAssigneeDropdown(elAssigneeInput.value);
+    });
+    elAssigneeInput.addEventListener('blur', () => {
+      closeAssigneeDropdown();
+      // If typed text doesn't match any selection, reset
+      if (elAssigneeValue.value === '' && elAssigneeInput.value !== '') {
+        const match = assigneeList.find(a => a.name === elAssigneeInput.value);
+        if (match) {
+          elAssigneeValue.value = match.id;
+        } else {
+          elAssigneeInput.value = '';
+        }
+      }
+    });
+
+    // Init
+    loadSettings();
+  </script>
+</body>
+</html>

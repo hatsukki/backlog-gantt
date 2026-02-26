@@ -35,14 +35,15 @@
     .btn-success:disabled { background: #95a5a6; cursor: not-allowed; }
 
     .toolbar { padding: 12px 24px; background: #fff; border-bottom: 1px solid #ddd; display: flex; gap: 8px; align-items: center; }
-    .toolbar .view-btn {
-      padding: 6px 14px; border: 1px solid #ccc; border-radius: 4px; background: #fff; font-size: 13px; cursor: pointer;
-    }
-    .toolbar .view-btn.active { background: #3498db; color: #fff; border-color: #3498db; }
-    .toolbar .issue-count { margin-left: auto; font-size: 13px; color: #666; }
+    .toolbar .issue-count { font-size: 13px; color: #666; }
 
     .chart-container { padding: 24px; overflow-x: auto; }
     #gantt-target { min-height: 200px; }
+    .gantt-section { margin-bottom: 24px; }
+    .gantt-assignee-header {
+      font-size: 15px; font-weight: 700; color: #2c3e50;
+      padding: 8px 0; border-bottom: 2px solid #3498db; margin-bottom: 4px;
+    }
 
     .status-msg { padding: 40px; text-align: center; color: #999; font-size: 15px; }
     .error-msg { color: #e74c3c; }
@@ -53,14 +54,43 @@
     .gantt .bar-label { font-size: 12px; }
     .gantt .bar { cursor: pointer; }
 
-    /* Status colors */
-    .bar-status-open .bar-progress, .bar-status-open .bar { fill: #95a5a6 !important; }
-    .bar-status-inprogress .bar-progress, .bar-status-inprogress .bar { fill: #3498db !important; }
-    .bar-status-resolved .bar-progress, .bar-status-resolved .bar { fill: #e67e22 !important; }
-    .bar-status-closed .bar-progress, .bar-status-closed .bar { fill: #27ae60 !important; }
+    /* Status colors - fallback for default IDs */
+    .bar-status-1 .bar-progress, .bar-status-1 .bar { fill: #ed8077 !important; }
+    .bar-status-2 .bar-progress, .bar-status-2 .bar { fill: #4fc3f7 !important; }
+    .bar-status-3 .bar-progress, .bar-status-3 .bar { fill: #81c784 !important; }
+    .bar-status-4 .bar-progress, .bar-status-4 .bar { fill: #a5d6a7 !important; }
+    .bar-boundary { display: none !important; }
+
+    .toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+      background: #333; color: #fff; padding: 10px 24px; border-radius: 6px; font-size: 14px;
+      opacity: 0; transition: opacity 0.3s, transform 0.3s; z-index: 9999; white-space: nowrap;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
     .popup-wrapper { padding: 12px; font-size: 13px; line-height: 1.6; }
     .popup-wrapper .popup-label { font-weight: 600; color: #555; }
+
+    /* Assignee multi-select box */
+    .assignee-box {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+      padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px; min-width: 200px;
+      min-height: 36px; background: #fff; cursor: text;
+    }
+    .assignee-box:focus-within { border-color: #3498db; box-shadow: 0 0 0 2px rgba(52,152,219,0.2); }
+    .assignee-box input {
+      border: none !important; outline: none !important; box-shadow: none !important;
+      padding: 2px 0 !important; min-width: 60px !important; flex: 1; font-size: 14px;
+    }
+    .assignee-tag {
+      display: inline-flex; align-items: center; gap: 2px;
+      background: #e8f0fe; color: #1a73e8; border-radius: 3px;
+      padding: 2px 6px; font-size: 12px; white-space: nowrap;
+    }
+    .assignee-tag .tag-remove {
+      cursor: pointer; margin-left: 2px; font-size: 14px; line-height: 1; color: #666;
+    }
+    .assignee-tag .tag-remove:hover { color: #e74c3c; }
 
     /* Searchable dropdown */
     .search-dropdown {
@@ -74,6 +104,9 @@
     }
     .search-dropdown .dd-item:hover, .search-dropdown .dd-item.active {
       background: #eaf2fb;
+    }
+    .search-dropdown .dd-item.selected {
+      background: #e8f0fe; color: #1a73e8;
     }
     .search-dropdown .dd-empty {
       padding: 8px 12px; color: #999; font-size: 13px;
@@ -118,8 +151,10 @@
       </div>
       <div class="field" style="position:relative;">
         <label>担当者</label>
-        <input type="text" id="assignee-input" placeholder="-- すべて --" autocomplete="off" disabled>
-        <input type="hidden" id="assignee-value">
+        <div class="assignee-box" id="assignee-box">
+          <span id="assignee-tags"></span>
+          <input type="text" id="assignee-input" placeholder="検索..." autocomplete="off" disabled>
+        </div>
         <div id="assignee-dropdown" class="search-dropdown"></div>
       </div>
       <div class="field">
@@ -132,12 +167,8 @@
       </div>
       <div class="field">
         <label>ステータス</label>
-        <select id="status-select">
+        <select id="status-select" disabled>
           <option value="">-- すべて --</option>
-          <option value="1">未対応</option>
-          <option value="2">処理中</option>
-          <option value="3">処理済み</option>
-          <option value="4">完了</option>
         </select>
       </div>
       <button class="btn-success" id="btn-show" disabled>表示</button>
@@ -145,9 +176,6 @@
   </div>
 
   <div class="toolbar" id="toolbar" style="display:none;">
-    <button class="view-btn active" data-mode="Week">週</button>
-    <button class="view-btn" data-mode="Day">日</button>
-    <button class="view-btn" data-mode="Month">月</button>
     <span class="issue-count" id="issue-count"></span>
   </div>
 
@@ -159,8 +187,18 @@
 
   <script src="https://cdn.jsdelivr.net/npm/frappe-gantt@1.2.2/dist/frappe-gantt.umd.js"></script>
   <script>
+    // Patch Frappe Gantt to force date range
+    let forcedRange = null;
+    const _origSetupDates = Gantt.prototype.setup_gantt_dates;
+    Gantt.prototype.setup_gantt_dates = function() {
+      _origSetupDates.call(this);
+      if (forcedRange) {
+        this.gantt_start = new Date(forcedRange.start + 'T00:00:00');
+        this.gantt_end = new Date(forcedRange.end + 'T23:59:59');
+      }
+    };
+
     const LS_KEY = 'backlog-gantt-settings';
-    let ganttInstance = null;
     let currentTasks = [];
     let baseUrl = '';
 
@@ -173,10 +211,12 @@
     const elFilterRow = document.getElementById('filter-row');
     const elMilestoneSelect = document.getElementById('milestone-select');
     const elCategorySelect = document.getElementById('category-select');
+    const elAssigneeBox = document.getElementById('assignee-box');
+    const elAssigneeTags = document.getElementById('assignee-tags');
     const elAssigneeInput = document.getElementById('assignee-input');
-    const elAssigneeValue = document.getElementById('assignee-value');
     const elAssigneeDropdown = document.getElementById('assignee-dropdown');
     let assigneeList = []; // { id, name }
+    let selectedAssignees = []; // { id, name }
     const elDateFrom = document.getElementById('date-from');
     const elDateTo = document.getElementById('date-to');
     const elStatusSelect = document.getElementById('status-select');
@@ -193,11 +233,10 @@
         if (saved.projectId) elProjectSelect.dataset.savedProject = saved.projectId;
         if (saved.milestoneId) elMilestoneSelect.dataset.savedMilestone = saved.milestoneId;
         if (saved.categoryId) elCategorySelect.dataset.savedCategory = saved.categoryId;
-        if (saved.assigneeId) elAssigneeValue.dataset.savedAssignee = saved.assigneeId;
-        if (saved.assigneeName) elAssigneeInput.dataset.savedAssigneeName = saved.assigneeName;
+        if (saved.assignees) elAssigneeBox.dataset.savedAssignees = JSON.stringify(saved.assignees);
         if (saved.dateFrom) elDateFrom.value = saved.dateFrom;
         if (saved.dateTo) elDateTo.value = saved.dateTo;
-        if (saved.statusId !== undefined) elStatusSelect.value = saved.statusId;
+        if (saved.statusId) elStatusSelect.dataset.savedStatus = saved.statusId;
       } catch (e) {}
     }
 
@@ -208,8 +247,7 @@
         projectId: elProjectSelect.value,
         milestoneId: elMilestoneSelect.value,
         categoryId: elCategorySelect.value,
-        assigneeId: elAssigneeValue.value,
-        assigneeName: elAssigneeInput.value,
+        assignees: selectedAssignees,
         dateFrom: elDateFrom.value,
         dateTo: elDateTo.value,
         statusId: elStatusSelect.value,
@@ -245,6 +283,33 @@
         throw new Error(err.errors?.[0]?.message || `API Error: ${res.status}`);
       }
       return res.json();
+    }
+
+    // PATCH (update) issue via Backlog API
+    async function backlogApiPatch(path, data) {
+      const host = getHost();
+      const apiKey = elApiKey.value.trim();
+      baseUrl = `https://${host}`;
+      const url = new URL(`${baseUrl}/api/v2${path}`);
+      url.searchParams.set('apiKey', apiKey);
+      const body = new URLSearchParams();
+      for (const [k, v] of Object.entries(data)) body.set(k, v);
+      const res = await fetch(url.toString(), { method: 'PATCH', body });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.errors?.[0]?.message || `API Error: ${res.status}`);
+      }
+      return res.json();
+    }
+
+    // Toast notification
+    function showToast(msg) {
+      const el = document.createElement('div');
+      el.className = 'toast';
+      el.textContent = msg;
+      document.body.appendChild(el);
+      requestAnimationFrame(() => el.classList.add('show'));
+      setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); }, 2500);
     }
 
     // Connect: fetch projects
@@ -299,28 +364,35 @@
     });
 
     function toDateStr(d) {
-      return d.toISOString().split('T')[0];
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
     }
 
     // Fetch milestones, categories, members for selected project
     async function fetchProjectFilters(projectId) {
       elMilestoneSelect.innerHTML = '<option value="">-- すべて --</option>';
       elCategorySelect.innerHTML = '<option value="">-- すべて --</option>';
+      elStatusSelect.innerHTML = '<option value="">-- すべて --</option>';
       assigneeList = [];
+      selectedAssignees = [];
       elAssigneeInput.value = '';
-      elAssigneeValue.value = '';
+      renderAssigneeTags();
       elMilestoneSelect.disabled = true;
       elCategorySelect.disabled = true;
       elAssigneeInput.disabled = true;
+      elStatusSelect.disabled = true;
       if (!projectId) return;
 
       const projectKey = elProjectSelect.selectedOptions[0]?.dataset.key;
 
       try {
-        const [milestones, categories, members] = await Promise.all([
+        const [milestones, categories, members, statuses] = await Promise.all([
           backlogApi(`/projects/${projectKey}/versions`),
           backlogApi(`/projects/${projectKey}/categories`),
           backlogApi(`/projects/${projectKey}/users`),
+          backlogApi(`/projects/${projectKey}/statuses`),
         ]);
 
         for (const m of milestones) {
@@ -343,16 +415,45 @@
         assigneeList = members.map(u => ({ id: String(u.id), name: u.name }));
         elAssigneeInput.disabled = false;
 
+        // 「完了以外」オプション（完了=id:4 以外の全ステータスIDを値に持つ）
+        const notClosedIds = statuses.filter(s => s.id !== 4).map(s => String(s.id));
+        const optNotClosed = document.createElement('option');
+        optNotClosed.value = notClosedIds.join(',');
+        optNotClosed.textContent = '完了以外';
+        elStatusSelect.appendChild(optNotClosed);
+
+        for (const s of statuses) {
+          const opt = document.createElement('option');
+          opt.value = s.id;
+          opt.textContent = s.name;
+          elStatusSelect.appendChild(opt);
+        }
+        elStatusSelect.disabled = false;
+
+        // Generate dynamic CSS from status colors
+        let dynamicStyle = document.getElementById('dynamic-status-colors');
+        if (!dynamicStyle) {
+          dynamicStyle = document.createElement('style');
+          dynamicStyle.id = 'dynamic-status-colors';
+          document.head.appendChild(dynamicStyle);
+        }
+        dynamicStyle.textContent = statuses
+          .filter(s => s.color)
+          .map(s => `.bar-status-${s.id} .bar-progress, .bar-status-${s.id} .bar { fill: ${s.color} !important; }`)
+          .join('\n');
+
         // Restore saved values
         const savedMid = elMilestoneSelect.dataset.savedMilestone;
         if (savedMid) { const o = elMilestoneSelect.querySelector(`option[value="${savedMid}"]`); if (o) elMilestoneSelect.value = savedMid; }
         const savedCid = elCategorySelect.dataset.savedCategory;
         if (savedCid) { const o = elCategorySelect.querySelector(`option[value="${savedCid}"]`); if (o) elCategorySelect.value = savedCid; }
-        const savedAid = elAssigneeValue.dataset.savedAssignee;
-        if (savedAid) {
-          const found = assigneeList.find(a => a.id === savedAid);
-          if (found) { elAssigneeValue.value = found.id; elAssigneeInput.value = found.name; }
-        }
+        const savedSid = elStatusSelect.dataset.savedStatus;
+        if (savedSid) { const o = elStatusSelect.querySelector(`option[value="${savedSid}"]`); if (o) elStatusSelect.value = savedSid; }
+        try {
+          const savedAssignees = JSON.parse(elAssigneeBox.dataset.savedAssignees || '[]');
+          selectedAssignees = savedAssignees.filter(s => assigneeList.some(a => a.id === s.id));
+          renderAssigneeTags();
+        } catch (e) {}
       } catch (e) {
         console.warn('フィルタ情報取得失敗:', e);
       }
@@ -363,27 +464,14 @@
       fetchProjectFilters(elProjectSelect.value);
     });
 
-    // Enforce max 1 month range
-    function enforceMaxRange() {
-      if (elDateFrom.value && elDateTo.value) {
-        const from = new Date(elDateFrom.value);
-        const to = new Date(elDateTo.value);
-        const maxTo = new Date(from);
-        maxTo.setMonth(maxTo.getMonth() + 1);
-        if (to > maxTo) {
-          elDateTo.value = toDateStr(maxTo);
-        }
-      }
-    }
+    // Auto-fill end date when start date is set
     elDateFrom.addEventListener('change', () => {
       if (elDateFrom.value && !elDateTo.value) {
-        const d = new Date(elDateFrom.value);
+        const d = new Date(elDateFrom.value + 'T00:00:00');
         d.setMonth(d.getMonth() + 1);
         elDateTo.value = toDateStr(d);
       }
-      enforceMaxRange();
     });
-    elDateTo.addEventListener('change', enforceMaxRange);
 
     // Fetch all issues with pagination
     async function fetchAllIssues(projectId) {
@@ -392,7 +480,7 @@
       const count = 100;
       const milestoneId = elMilestoneSelect.value;
       const categoryId = elCategorySelect.value;
-      const assigneeId = elAssigneeValue.value;
+      const assigneeIds = selectedAssignees.map(a => a.id);
       const dateFrom = elDateFrom.value;
       const dateTo = elDateTo.value;
       const statusId = elStatusSelect.value;
@@ -407,10 +495,10 @@
         };
         if (milestoneId) params['milestoneId[]'] = milestoneId;
         if (categoryId) params['categoryId[]'] = categoryId;
-        if (assigneeId) params['assigneeId[]'] = assigneeId;
+        if (assigneeIds.length) params['assigneeId[]'] = assigneeIds;
         if (dateFrom) params['dueDateSince'] = dateFrom;
         if (dateTo) params['dueDateUntil'] = dateTo;
-        if (statusId) params['statusId[]'] = statusId;
+        if (statusId) params['statusId[]'] = statusId.includes(',') ? statusId.split(',') : statusId;
 
         const batch = await backlogApi('/issues', params);
         issues.push(...batch);
@@ -422,13 +510,7 @@
 
     // Status mapping
     function getStatusClass(statusId) {
-      switch (statusId) {
-        case 1: return 'open';
-        case 2: return 'inprogress';
-        case 3: return 'resolved';
-        case 4: return 'closed';
-        default: return 'open';
-      }
+      return String(statusId);
     }
 
     function getStatusProgress(statusId) {
@@ -441,56 +523,96 @@
       }
     }
 
-    function getStatusLabel(statusId) {
-      switch (statusId) {
-        case 1: return '未対応';
-        case 2: return '処理中';
-        case 3: return '処理済み';
-        case 4: return '完了';
-        default: return '不明';
-      }
+
+    // Compute visible range (first of start month ~ last of end month)
+    function getVisibleRange() {
+      const from = elDateFrom.value;
+      const to = elDateTo.value;
+      if (!from || !to) return null;
+      const rangeStart = from.slice(0, 7) + '-01';
+      const endDate = new Date(to);
+      const lastDay = new Date(endDate.getFullYear(), endDate.getMonth() + 1, 0);
+      const rangeEnd = toDateStr(lastDay);
+      return { rangeStart, rangeEnd };
     }
 
-    // Convert issues to Frappe Gantt tasks
+    // Convert issues to Frappe Gantt tasks (clamp dates to visible range)
     function issuesToTasks(issues) {
-      const projectKey = elProjectSelect.selectedOptions[0]?.dataset.key || '';
+      const range = getVisibleRange();
       return issues
         .filter(issue => issue.startDate && issue.dueDate)
-        .map(issue => ({
-          id: issue.issueKey,
-          name: `[${issue.issueKey}] ${issue.summary}`,
-          start: issue.startDate.split('T')[0],
-          end: issue.dueDate.split('T')[0],
-          progress: getStatusProgress(issue.status?.id),
-          custom_class: `bar-status-${getStatusClass(issue.status?.id)}`,
-          _issueKey: issue.issueKey,
-          _assignee: issue.assignee?.name || '未割当',
-          _status: getStatusLabel(issue.status?.id),
-          _dueDate: issue.dueDate.split('T')[0],
-        }));
+        .filter(issue => {
+          if (!range) return true;
+          const s = issue.startDate.split('T')[0];
+          const e = issue.dueDate.split('T')[0];
+          // skip if entirely outside range
+          return e >= range.rangeStart && s <= range.rangeEnd;
+        })
+        .map(issue => {
+          let start = issue.startDate.split('T')[0];
+          let end = issue.dueDate.split('T')[0];
+          if (range) {
+            if (start < range.rangeStart) start = range.rangeStart;
+            if (end > range.rangeEnd) end = range.rangeEnd;
+          }
+          return {
+            id: issue.issueKey,
+            name: `[${issue.issueKey}] ${issue.summary}`,
+            start,
+            end,
+            progress: getStatusProgress(issue.status?.id),
+            custom_class: `bar-status-${getStatusClass(issue.status?.id)}`,
+            _issueKey: issue.issueKey,
+            _assignee: issue.assignee?.name || '未割当',
+            _status: issue.status?.name || '不明',
+            _dueDate: issue.dueDate.split('T')[0],
+          };
+        });
     }
 
-    // Render Gantt
-    function renderGantt(tasks, viewMode = 'Week') {
-      currentTasks = tasks;
-      elGantt.innerHTML = '';
+    // Add boundary tasks to force full-month range
+    function addBoundaryTasks(tasks) {
+      const from = elDateFrom.value;
+      const to = elDateTo.value;
+      if (!from || !to) return tasks;
 
-      if (tasks.length === 0) {
-        elGantt.innerHTML = '<div class="status-msg">表示可能な課題がありません（開始日・期限日が設定されている課題が必要です）</div>';
-        elToolbar.style.display = 'none';
-        return;
+      const startOfMonth = from.slice(0, 7) + '-01';
+      const endDate = new Date(to);
+      const lastDay = new Date(endDate.getFullYear(), endDate.getMonth() + 1, 0);
+      const endOfMonth = toDateStr(lastDay);
+
+      return [
+        { id: '__bound_start', name: '', start: startOfMonth, end: startOfMonth, progress: 0, custom_class: 'bar-boundary' },
+        ...tasks,
+        { id: '__bound_end', name: '', start: endOfMonth, end: endOfMonth, progress: 0, custom_class: 'bar-boundary' },
+      ];
+    }
+
+    // Group tasks by assignee
+    function groupByAssignee(tasks) {
+      const groups = new Map();
+      for (const t of tasks) {
+        const key = t._assignee;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(t);
       }
+      return groups;
+    }
 
-      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      svg.id = 'gantt-svg';
-      elGantt.appendChild(svg);
+    // Gantt options shared across instances
+    let dragged = false;
 
-      ganttInstance = new Gantt('#gantt-svg', tasks, {
-        readonly: true,
+    function ganttOptions(viewMode) {
+      return {
+        readonly: false,
+        readonly_progress: true,
         view_mode: viewMode,
         date_format: 'YYYY-MM-DD',
         language: 'ja',
+        scroll_to: 'start',
+        infinite_padding: false,
         popup: function({ task }) {
+          if (task.id.startsWith('__bound')) return false;
           return `
             <div class="popup-wrapper">
               <div style="font-weight:700; margin-bottom:6px;">${task.name}</div>
@@ -501,12 +623,73 @@
           `;
         },
         on_click: function(task) {
+          if (dragged) { dragged = false; return; }
+          if (task.id.startsWith('__bound')) return;
           window.open(`${baseUrl}/view/${task._issueKey}`, '_blank');
         },
-      });
+        on_date_change: async function(task, start, end) {
+          dragged = true;
+          document.querySelectorAll('.popup-wrapper').forEach(p => {
+            const popup = p.closest('.popup');
+            if (popup) popup.classList.add('hide');
+          });
+          if (task.id.startsWith('__bound')) return;
+          const startStr = toDateStr(start);
+          const endStr = toDateStr(end);
+          try {
+            await backlogApiPatch(`/issues/${task._issueKey}`, {
+              startDate: startStr,
+              dueDate: endStr,
+            });
+            task._dueDate = endStr;
+            showToast(`${task._issueKey} を更新しました（${startStr} 〜 ${endStr}）`);
+          } catch (e) {
+            alert('更新失敗: ' + e.message);
+          }
+        },
+      };
+    }
+
+    // Render Gantt
+    let ganttInstances = [];
+
+    function renderGantt(tasks, viewMode = 'Day') {
+      currentTasks = tasks;
+      ganttInstances = [];
+      elGantt.innerHTML = '';
+
+      if (tasks.length === 0) {
+        elGantt.innerHTML = '<div class="status-msg">表示可能な課題がありません（開始日・期限日が設定されている課題が必要です）</div>';
+        elToolbar.style.display = 'none';
+        return;
+      }
+
+      // Set forced range for Gantt prototype patch
+      const range = getVisibleRange();
+      forcedRange = range ? { start: range.rangeStart, end: range.rangeEnd } : null;
+
+      const groups = groupByAssignee(tasks);
+
+      for (const [assignee, groupTasks] of groups) {
+        const section = document.createElement('div');
+        section.className = 'gantt-section';
+
+        const header = document.createElement('div');
+        header.className = 'gantt-assignee-header';
+        header.textContent = `${assignee}（${groupTasks.length}件）`;
+        section.appendChild(header);
+
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        section.appendChild(svg);
+        elGantt.appendChild(section);
+
+        const tasksWithBounds = addBoundaryTasks(groupTasks);
+        const instance = new Gantt(svg, tasksWithBounds, ganttOptions(viewMode));
+        ganttInstances.push(instance);
+      }
 
       elToolbar.style.display = 'flex';
-      elIssueCount.textContent = `${tasks.length} 件表示`;
+      elIssueCount.textContent = `${tasks.length} 件（${groups.size} 名）`;
     }
 
     // Show button
@@ -531,37 +714,38 @@
       }
     });
 
-    // View mode buttons
-    document.querySelectorAll('.view-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        if (ganttInstance) {
-          ganttInstance.change_view_mode(btn.dataset.mode);
-        }
-      });
+
+
+    // Multi-select assignee
+    function renderAssigneeTags() {
+      elAssigneeTags.innerHTML = '';
+      for (const a of selectedAssignees) {
+        const tag = document.createElement('span');
+        tag.className = 'assignee-tag';
+        tag.innerHTML = `${a.name}<span class="tag-remove" data-id="${a.id}">&times;</span>`;
+        elAssigneeTags.appendChild(tag);
+      }
+      elAssigneeInput.placeholder = selectedAssignees.length ? '' : '検索...';
+    }
+
+    elAssigneeTags.addEventListener('mousedown', (e) => {
+      const removeBtn = e.target.closest('.tag-remove');
+      if (removeBtn) {
+        e.preventDefault();
+        selectedAssignees = selectedAssignees.filter(a => a.id !== removeBtn.dataset.id);
+        renderAssigneeTags();
+        renderAssigneeDropdown(elAssigneeInput.value);
+      }
     });
 
-    // Searchable assignee dropdown
     function renderAssigneeDropdown(filter) {
       const q = (filter || '').toLowerCase();
-      const items = q
-        ? assigneeList.filter(a => a.name.toLowerCase().includes(q))
-        : assigneeList;
-      elAssigneeDropdown.innerHTML = '';
-
-      // "すべて" option
-      const allDiv = document.createElement('div');
-      allDiv.className = 'dd-item';
-      allDiv.textContent = '-- すべて --';
-      allDiv.addEventListener('mousedown', (e) => {
-        e.preventDefault();
-        elAssigneeValue.value = '';
-        elAssigneeInput.value = '';
-        elAssigneeInput.placeholder = '-- すべて --';
-        closeAssigneeDropdown();
+      const selectedIds = new Set(selectedAssignees.map(a => a.id));
+      const items = assigneeList.filter(a => {
+        if (q && !a.name.toLowerCase().includes(q)) return false;
+        return true;
       });
-      elAssigneeDropdown.appendChild(allDiv);
+      elAssigneeDropdown.innerHTML = '';
 
       if (items.length === 0) {
         const empty = document.createElement('div');
@@ -571,14 +755,19 @@
       } else {
         for (const a of items) {
           const div = document.createElement('div');
-          div.className = 'dd-item';
+          const isSelected = selectedIds.has(a.id);
+          div.className = 'dd-item' + (isSelected ? ' selected' : '');
           div.textContent = a.name;
-          div.dataset.id = a.id;
           div.addEventListener('mousedown', (e) => {
             e.preventDefault();
-            elAssigneeValue.value = a.id;
-            elAssigneeInput.value = a.name;
-            closeAssigneeDropdown();
+            if (isSelected) {
+              selectedAssignees = selectedAssignees.filter(s => s.id !== a.id);
+            } else {
+              selectedAssignees.push({ id: a.id, name: a.name });
+            }
+            elAssigneeInput.value = '';
+            renderAssigneeTags();
+            renderAssigneeDropdown('');
           });
           elAssigneeDropdown.appendChild(div);
         }
@@ -594,21 +783,28 @@
       elAssigneeDropdown.classList.remove('open');
     }
 
+    elAssigneeBox.addEventListener('click', () => elAssigneeInput.focus());
     elAssigneeInput.addEventListener('focus', openAssigneeDropdown);
-    elAssigneeInput.addEventListener('input', () => {
-      elAssigneeValue.value = '';
-      renderAssigneeDropdown(elAssigneeInput.value);
-    });
+    elAssigneeInput.addEventListener('input', () => renderAssigneeDropdown(elAssigneeInput.value));
     elAssigneeInput.addEventListener('blur', () => {
       closeAssigneeDropdown();
-      // If typed text doesn't match any selection, reset
-      if (elAssigneeValue.value === '' && elAssigneeInput.value !== '') {
-        const match = assigneeList.find(a => a.name === elAssigneeInput.value);
-        if (match) {
-          elAssigneeValue.value = match.id;
-        } else {
-          elAssigneeInput.value = '';
-        }
+      elAssigneeInput.value = '';
+    });
+
+    // Close popups when clicking outside gantt bars
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.bar-wrapper') && !e.target.closest('.popup-wrapper')) {
+        document.querySelectorAll('.gantt-container .popup-wrapper').forEach(p => {
+          p.style.display = 'none';
+        });
+      }
+    });
+    // Re-enable popup display when clicking a bar
+    document.addEventListener('mousedown', (e) => {
+      if (e.target.closest('.bar-wrapper')) {
+        document.querySelectorAll('.gantt-container .popup-wrapper').forEach(p => {
+          p.style.display = '';
+        });
       }
     });
 
